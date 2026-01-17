@@ -122,7 +122,7 @@ def node_synthesizer(state: AgentState):
     else:
         user_query = state['messages'][0].content
 
-    context = "\n".join([f"info found: {v}" for v in step_results.values()])
+    context = "\n".join(f"info found: {v}" for v in step_results.values())
 
     prompt = f"""
         You are a helpful assistant. Using the information gathered from various steps, provide a concise and accurate answer to user query: '{user_query}' using this data: \n{context}
