@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+import asyncio
 from langchain_core.messages import HumanMessage
 from src.agent.graph import app
 from src.agent.state import PlanState, ReflectorState
@@ -66,11 +67,10 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
             status_container = st.status("Agent is working...", expanded=True)
         
         inputs = {"messages": [HumanMessage(content=prompt)]}
-        final_answer = ""
         
-        # Stream events
-        try:
-            for event in app.stream(inputs):
+        async def run_agent():
+            final_ans = ""
+            async for event in app.astream(inputs):
                 
                 # --- VISUALIZE PLANNING ---
                 if "planner" in event:
@@ -100,7 +100,13 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
 
                 # --- VISUALIZE FINAL OUTPUT ---
                 if "synthesizer" in event:
-                    final_answer = event["synthesizer"]["final_output"]
+                    final_ans = event["synthesizer"]["final_output"]
+
+            return final_ans
+
+        # Stream events
+        try:
+            final_answer = asyncio.run(run_agent())
 
             # Close the status container
             status_container.update(label="Processing Complete", state="complete", expanded=False)
@@ -115,4 +121,3 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
         except Exception as e:
             status_container.update(label="Error Occurred", state="error")
             st.error(f"An error occurred: {e}")
-

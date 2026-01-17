@@ -13,7 +13,7 @@ tool_map = {t.name: t for t in tools}
 # Bind all tools
 tool_chain = llm.bind_tools(tools)
 
-def node_planner(state: AgentState):
+async def node_planner(state: AgentState):
     # Ensure messages exist
     if not state.get('messages'):
         return {}
@@ -40,7 +40,7 @@ def node_planner(state: AgentState):
     # Note: structured_llm.invoke expects a list of messages or a string.
     # We prepend the system message.
     input_messages = [SystemMessage(content=prompt)] + state['messages']
-    res = structured_llm.invoke(input_messages)
+    res = await structured_llm.ainvoke(input_messages)
 
     return {
         'plan': res,
@@ -49,7 +49,7 @@ def node_planner(state: AgentState):
         'retry_cnt': state.get('retry_cnt', -1) + 1,
     }
 
-def node_executor(state: AgentState):
+async def node_executor(state: AgentState):
     plan = state['plan']
     idx: int = state['current_step']
 
@@ -59,7 +59,7 @@ def node_executor(state: AgentState):
     curr_step = plan.steps[idx]
 
     if curr_step.tool_required:
-        res = tool_chain.invoke(f"Perform this task: {curr_step.description}")
+        res = await tool_chain.ainvoke(f"Perform this task: {curr_step.description}")
 
         if res.tool_calls:
             # Execute the first tool call (simplified for this agent structure)
@@ -69,7 +69,7 @@ def node_executor(state: AgentState):
             if tool_name in tool_map:
                 tool = tool_map[tool_name]
                 try:
-                    output = tool.invoke(tool_call['args'])
+                    output = await tool.ainvoke(tool_call['args'])
                     res = str(output)
                 except Exception as e:
                     res = f"Error executing tool {tool_name}: {e}"
@@ -80,14 +80,14 @@ def node_executor(state: AgentState):
 
     else:
         # Pure reasoning step
-        res = llm.invoke(f"Reason through this: {curr_step.description}").content
+        res = (await llm.ainvoke(f"Reason through this: {curr_step.description}")).content
 
     return {
         'step_results': {idx: res},
         'current_step':  idx + 1
     }
 
-def node_reflector(state: AgentState):
+async def node_reflector(state: AgentState):
     if not state.get('messages'):
         return {}
 
@@ -105,7 +105,7 @@ def node_reflector(state: AgentState):
         Executed Steps: {context}
     """
 
-    res = structured_reasoner_llm.invoke(prompt)
+    res = await structured_reasoner_llm.ainvoke(prompt)
 
     # we append the critique as a message for context in next planning
     return {
@@ -113,7 +113,7 @@ def node_reflector(state: AgentState):
         "messages": [AIMessage(content=f"Self-Reflection: {res.feedback}")]
     }
 
-def node_synthesizer(state: AgentState):
+async def node_synthesizer(state: AgentState):
     """Combines all the gathered information into a final human-readable answer."""
 
     step_results = state['step_results']
@@ -128,7 +128,7 @@ def node_synthesizer(state: AgentState):
         You are a helpful assistant. Using the information gathered from various steps, provide a concise and accurate answer to user query: '{user_query}' using this data: \n{context}
     """
 
-    res = llm.invoke(prompt)
+    res = await llm.ainvoke(prompt)
 
     return {
         'final_output': res.content
