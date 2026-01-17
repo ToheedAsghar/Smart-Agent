@@ -198,5 +198,5 @@ graph.add_conditional_edges("reflector", reflection_router, {"planner": "planner
 
 graph.add_edge("synthesizer", END)
 
-# comile
+# compile
 app = graph.compile()
