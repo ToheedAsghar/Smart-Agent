@@ -83,12 +83,19 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
                 
                 # --- VISUALIZE EXECUTION ---
                 if "executor" in event:
-                    idx = event["executor"]["current_step"] - 1
-                    result = event["executor"]["step_results"][idx]
+                    # Check for batch execution
+                    if "executed_indices" in event["executor"]:
+                        indices = event["executor"]["executed_indices"]
+                    else:
+                        # Fallback for compatibility or single step
+                        idx = event["executor"]["current_step"] - 1
+                        indices = [idx]
 
-                    status_container.write(f"⚙️ **Step {idx + 1} Executed**")
-                    with status_container.expander(f"Result for Step {idx+1}"):
-                        st.code(result)
+                    for idx in indices:
+                        result = event["executor"]["step_results"][idx]
+                        status_container.write(f"⚙️ **Step {idx + 1} Executed**")
+                        with status_container.expander(f"Result for Step {idx+1}"):
+                            st.code(result)
 
                 # --- VISUALIZE REFLECTION ---
                 if "reflector" in event:

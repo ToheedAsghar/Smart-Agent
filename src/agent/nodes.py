@@ -1,4 +1,5 @@
 from langchain_core.messages import SystemMessage, AIMessage
+import concurrent.futures
 from src.agent.state import AgentState, PlanState, ReflectorState
 from src.utils.config import get_llm, get_reasoner_llm
 from src.tools.custom_tools import get_tools
@@ -34,6 +35,8 @@ def node_planner(state: AgentState):
         prompt = f"""
             You are a Solution Architect. Break down the user's query into
             logical, sequential steps. Be Precise. If it's a greeting, make a 1-step plan.
+            Assign a 'section_id' to each step. Steps with the same section_id will be executed in parallel.
+            Sequential steps should have increasing section_ids.
         """
 
     # pass the full message history for context
@@ -49,17 +52,10 @@ def node_planner(state: AgentState):
         'retry_cnt': state.get('retry_cnt', -1) + 1,
     }
 
-def node_executor(state: AgentState):
-    plan = state['plan']
-    idx: int = state['current_step']
-
-    if not plan or idx >= len(plan.steps):
-        return state
-
-    curr_step = plan.steps[idx]
-
-    if curr_step.tool_required:
-        res = tool_chain.invoke(f"Perform this task: {curr_step.description}")
+def _execute_step(step):
+    """Helper function to execute a single step."""
+    if step.tool_required:
+        res = tool_chain.invoke(f"Perform this task: {step.description}")
 
         if res.tool_calls:
             # Execute the first tool call (simplified for this agent structure)
@@ -77,14 +73,51 @@ def node_executor(state: AgentState):
                 res = f"Tool {tool_name} not found."
         else:
             res = res.content
-
     else:
         # Pure reasoning step
-        res = llm.invoke(f"Reason through this: {curr_step.description}").content
+        res = llm.invoke(f"Reason through this: {step.description}").content
+    return res
+
+
+def node_executor(state: AgentState):
+    plan = state['plan']
+    idx: int = state['current_step']
+
+    if not plan or idx >= len(plan.steps):
+        return state
+
+    # Identify steps to execute in this batch
+    current_section_id = plan.steps[idx].section_id
+    batch_steps = []
+    batch_indices = []
+
+    for i in range(idx, len(plan.steps)):
+        if plan.steps[i].section_id == current_section_id:
+            batch_steps.append(plan.steps[i])
+            batch_indices.append(i)
+        else:
+            break
+
+    # Run in parallel
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {executor.submit(_execute_step, step): i for i, step in zip(batch_indices, batch_steps)}
+        for future in concurrent.futures.as_completed(futures):
+            i = futures[future]
+            try:
+                results[i] = future.result()
+            except Exception as e:
+                results[i] = f"Error: {e}"
+
+    # Update state
+    # We merge with existing results to ensure history is preserved
+    current_results = state.get('step_results', {}).copy()
+    current_results.update(results)
 
     return {
-        'step_results': {idx: res},
-        'current_step':  idx + 1
+        'step_results': current_results,
+        'current_step': idx + len(batch_steps),
+        'executed_indices': batch_indices
     }
 
 def node_reflector(state: AgentState):

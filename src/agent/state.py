@@ -6,6 +6,7 @@ class PlanStep(BaseModel):
     step_id: int = Field(..., description="The unique sequential identifier for the step")
     description: str = Field(..., description="A description of the step to be taken")
     tool_required: bool = Field(..., description="Whether this step requires external search/tools?")
+    section_id: int = Field(..., description="The ID of the section this step belongs to. Steps with the same section_id can be executed in parallel.")
 
 class PlanState(BaseModel):
     steps: List[PlanStep] = Field(description="List of the steps in the plan")
