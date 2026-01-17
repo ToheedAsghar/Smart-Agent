@@ -7,6 +7,7 @@ from src.tools.custom_tools import get_tools
 llm = get_llm()
 reasoner_llm = get_reasoner_llm()
 structured_reasoner_llm = reasoner_llm.with_structured_output(ReflectorState)
+structured_llm = llm.with_structured_output(PlanState)
 
 tools = get_tools()
 tool_map = {t.name: t for t in tools}
@@ -19,7 +20,6 @@ def node_planner(state: AgentState):
         return {}
 
     question = state['messages'][-1].content
-    structured_llm = llm.with_structured_output(PlanState)
 
     is_retry = (state.get("retry_cnt", 0) > 0)
 
