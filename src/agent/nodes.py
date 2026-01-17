@@ -62,19 +62,19 @@ def node_executor(state: AgentState):
         res = tool_chain.invoke(f"Perform this task: {curr_step.description}")
 
         if res.tool_calls:
-            # Execute the first tool call (simplified for this agent structure)
-            tool_call = res.tool_calls[0]
-            tool_name = tool_call['name']
-
-            if tool_name in tool_map:
-                tool = tool_map[tool_name]
-                try:
-                    output = tool.invoke(tool_call['args'])
-                    res = str(output)
-                except Exception as e:
-                    res = f"Error executing tool {tool_name}: {e}"
-            else:
-                res = f"Tool {tool_name} not found."
+            results = []
+            for tool_call in res.tool_calls:
+                tool_name = tool_call['name']
+                if tool_name in tool_map:
+                    tool = tool_map[tool_name]
+                    try:
+                        output = tool.invoke(tool_call['args'])
+                        results.append(str(output))
+                    except Exception as e:
+                        results.append(f"Error executing tool {tool_name}: {e}")
+                else:
+                    results.append(f"Tool {tool_name} not found.")
+            res = "\n".join(results)
         else:
             res = res.content
 
