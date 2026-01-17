@@ -6,8 +6,12 @@ from src.tools.custom_tools import get_tools
 # Initialize models and tools
 llm = get_llm()
 reasoner_llm = get_reasoner_llm()
+structured_reasoner_llm = reasoner_llm.with_structured_output(ReflectorState)
+
 tools = get_tools()
 tool_map = {t.name: t for t in tools}
+# Bind all tools
+tool_chain = llm.bind_tools(tools)
 
 def node_planner(state: AgentState):
     # Ensure messages exist
@@ -55,8 +59,6 @@ def node_executor(state: AgentState):
     curr_step = plan.steps[idx]
 
     if curr_step.tool_required:
-        # Bind all tools
-        tool_chain = llm.bind_tools(tools)
         res = tool_chain.invoke(f"Perform this task: {curr_step.description}")
 
         if res.tool_calls:
@@ -92,8 +94,6 @@ def node_reflector(state: AgentState):
     user_query = state['messages'][0].content
     plan = state['plan']
     step_results = state['step_results']
-
-    structured_reasoner_llm = reasoner_llm.with_structured_output(ReflectorState)
 
     context = "\n".join([f"step {i} : {v}" for i,v in step_results.items()])
 
