@@ -44,10 +44,26 @@ for msg in st.session_state.messages:
         with st.chat_message("assistant"):
             st.markdown(msg["content"])
     elif msg["role"] == "process":
-        # Render historical process logs if we want to keep them (optional)
-        # For now, we only show final answers in history to keep it clean,
-        # but the current run shows process.
-        pass
+        with st.chat_message("assistant"):
+            with st.status("Process Log", state="complete", expanded=False):
+                for step in msg["content"]:
+                    if step["type"] == "planner":
+                        st.write(f"📝 **Plan Created:** {step['rationale']}")
+                        with st.expander("View Plan Details"):
+                             for s in step["steps"]:
+                                 icon = "🛠️" if s["tool_required"] else "🧠"
+                                 st.markdown(f"**{s['step_id']}.** {icon} {s['description']}")
+
+                    elif step["type"] == "executor":
+                         st.write(f"⚙️ **Step {step['step']} Executed**")
+                         with st.expander(f"Result for Step {step['step']}"):
+                             st.code(step["result"])
+
+                    elif step["type"] == "reflector":
+                         if step["is_satisfactory"]:
+                             st.write("✅ **Quality Check Passed**")
+                         else:
+                             st.write(f"🤔 **Critique:** {step['feedback']}")
 
 if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia competitors and calculate their avg PE ratio')"):
     
@@ -67,6 +83,7 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
         
         inputs = {"messages": [HumanMessage(content=prompt)]}
         final_answer = ""
+        process_history = []
         
         # Stream events
         try:
@@ -75,6 +92,13 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
                 # --- VISUALIZE PLANNING ---
                 if "planner" in event:
                     plan: PlanState = event["planner"]["plan"]
+
+                    process_history.append({
+                        "type": "planner",
+                        "rationale": plan.rationale,
+                        "steps": [s.dict() for s in plan.steps]
+                    })
+
                     status_container.write(f"📝 **Plan Created:** {plan.rationale}")
                     with status_container.expander("View Plan Details"):
                         for step in plan.steps:
@@ -86,6 +110,12 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
                     idx = event["executor"]["current_step"] - 1
                     result = event["executor"]["step_results"][idx]
 
+                    process_history.append({
+                        "type": "executor",
+                        "step": idx + 1,
+                        "result": result
+                    })
+
                     status_container.write(f"⚙️ **Step {idx + 1} Executed**")
                     with status_container.expander(f"Result for Step {idx+1}"):
                         st.code(result)
@@ -93,6 +123,13 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
                 # --- VISUALIZE REFLECTION ---
                 if "reflector" in event:
                     reflection: ReflectorState = event["reflector"]["reflection"]
+
+                    process_history.append({
+                        "type": "reflector",
+                        "is_satisfactory": reflection.is_satisfactory,
+                        "feedback": reflection.feedback
+                    })
+
                     if reflection.is_satisfactory:
                         status_container.write("✅ **Quality Check Passed**")
                     else:
@@ -110,6 +147,7 @@ if prompt := st.chat_input("Enter a complex request (e.g., 'Research Nvidia comp
             st.markdown(final_answer)
 
             # Save to history
+            st.session_state.messages.append({"role": "process", "content": process_history})
             st.session_state.messages.append({"role": "assistant", "content": final_answer})
 
         except Exception as e:
