@@ -3,23 +3,31 @@ from src.agent.state import AgentState, PlanState, ReflectorState
 from src.utils.config import get_llm, get_reasoner_llm
 from src.tools.custom_tools import get_tools
 
-# Initialize models and tools
-llm = get_llm()
-reasoner_llm = get_reasoner_llm()
-structured_reasoner_llm = reasoner_llm.with_structured_output(ReflectorState)
+class AgentResources:
+    def __init__(self):
+        self.llm = get_llm()
+        self.reasoner_llm = get_reasoner_llm()
+        self.structured_reasoner_llm = self.reasoner_llm.with_structured_output(ReflectorState)
+        self.tools = get_tools()
+        self.tool_map = {t.name: t for t in self.tools}
+        self.tool_chain = self.llm.bind_tools(self.tools)
 
-tools = get_tools()
-tool_map = {t.name: t for t in tools}
-# Bind all tools
-tool_chain = llm.bind_tools(tools)
+_resources = None
+
+def get_agent_resources():
+    global _resources
+    if _resources is None:
+        _resources = AgentResources()
+    return _resources
 
 def node_planner(state: AgentState):
+    resources = get_agent_resources()
     # Ensure messages exist
     if not state.get('messages'):
         return {}
 
     question = state['messages'][-1].content
-    structured_llm = llm.with_structured_output(PlanState)
+    structured_llm = resources.llm.with_structured_output(PlanState)
 
     is_retry = (state.get("retry_cnt", 0) > 0)
 
@@ -50,6 +58,7 @@ def node_planner(state: AgentState):
     }
 
 def node_executor(state: AgentState):
+    resources = get_agent_resources()
     plan = state['plan']
     idx: int = state['current_step']
 
@@ -59,15 +68,15 @@ def node_executor(state: AgentState):
     curr_step = plan.steps[idx]
 
     if curr_step.tool_required:
-        res = tool_chain.invoke(f"Perform this task: {curr_step.description}")
+        res = resources.tool_chain.invoke(f"Perform this task: {curr_step.description}")
 
         if res.tool_calls:
             # Execute the first tool call (simplified for this agent structure)
             tool_call = res.tool_calls[0]
             tool_name = tool_call['name']
 
-            if tool_name in tool_map:
-                tool = tool_map[tool_name]
+            if tool_name in resources.tool_map:
+                tool = resources.tool_map[tool_name]
                 try:
                     output = tool.invoke(tool_call['args'])
                     res = str(output)
@@ -80,7 +89,7 @@ def node_executor(state: AgentState):
 
     else:
         # Pure reasoning step
-        res = llm.invoke(f"Reason through this: {curr_step.description}").content
+        res = resources.llm.invoke(f"Reason through this: {curr_step.description}").content
 
     return {
         'step_results': {idx: res},
@@ -88,6 +97,7 @@ def node_executor(state: AgentState):
     }
 
 def node_reflector(state: AgentState):
+    resources = get_agent_resources()
     if not state.get('messages'):
         return {}
 
@@ -105,7 +115,7 @@ def node_reflector(state: AgentState):
         Executed Steps: {context}
     """
 
-    res = structured_reasoner_llm.invoke(prompt)
+    res = resources.structured_reasoner_llm.invoke(prompt)
 
     # we append the critique as a message for context in next planning
     return {
@@ -115,6 +125,7 @@ def node_reflector(state: AgentState):
 
 def node_synthesizer(state: AgentState):
     """Combines all the gathered information into a final human-readable answer."""
+    resources = get_agent_resources()
 
     step_results = state['step_results']
     if not state.get('messages'):
@@ -128,7 +139,7 @@ def node_synthesizer(state: AgentState):
         You are a helpful assistant. Using the information gathered from various steps, provide a concise and accurate answer to user query: '{user_query}' using this data: \n{context}
     """
 
-    res = llm.invoke(prompt)
+    res = resources.llm.invoke(prompt)
 
     return {
         'final_output': res.content
